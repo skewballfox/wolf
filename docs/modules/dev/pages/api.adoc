@@ -5,6 +5,10 @@ Wolf exposes a REST API that allows you to interact with the platform programmat
 The API can be accessed only via UNIX sockets, you can control the exact path by setting the `WOLF_SOCKET_PATH` environment variable.
 If you want to access the socket from outside the container, you should mount the socket to the host machine, ex: `-e WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock` and `-v /var/run/wolf:/var/run/wolf` will allow you to access the socket from the host machine at `/var/run/wolf/wolf.sock`.
 
+By default the socket is only writable by the user Wolf runs as, so non-root clients (for example Wolf UI running rootless) can't connect.
+Set `WOLF_SOCKET_GROUP` (group name or GID) and `WOLF_SOCKET_MODE` (octal, e.g. `0660`) to open it up to a group, and add the client to that group.
+Keep in mind that anything that can reach the socket can control Wolf, including starting containers.
+
 You can test out the API using the `curl` command, for example, to get the OpenAPI specification you can run:
 
 [source,bash]

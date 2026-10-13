@@ -70,6 +70,14 @@ Wolf is configured via a TOML config file and some additional optional ENV varia
 |WOLF_DEFAULT_RUN_GID
 |1000
 |The default GID that apps run as, applied to newly paired clients; existing clients keep their saved values
+
+|WOLF_SOCKET_GROUP
+|
+|A group name or GID to hand the API socket (`WOLF_SOCKET_PATH`) to, see xref:dev:api.adoc[API]
+
+|WOLF_SOCKET_MODE
+|
+|Octal permissions for the API socket, e.g. `0660`. Unset, they come from the umask (owner only when Wolf runs as root)
 |===
 
 Additional env variables useful when debugging:

@@ -8,6 +8,9 @@
 #include <rfl/toml.hpp>
 #include <sessions/handlers.hpp>
 #include <state/config.hpp>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
 
 using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::Equals;
@@ -805,4 +808,51 @@ TEST_CASE("SSE APIs", "[API]") {
   REQUIRE(event.has_value());
   REQUIRE_THAT(event->event, Equals("wolf::core::events::IDRRequestEvent"));
   REQUIRE_THAT(event->data, Equals("{\"session_id\":\"42\"}"));
+}
+
+TEST_CASE("API socket permissions", "[API]") {
+  auto socket_path = (std::filesystem::path(api_runtime_dir()) / "wolf-perms-test.sock").string();
+  ::unlink(socket_path.c_str());
+  auto fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+  REQUIRE(fd >= 0);
+  sockaddr_un addr{.sun_family = AF_UNIX};
+  std::strncpy(addr.sun_path, socket_path.c_str(), sizeof(addr.sun_path) - 1);
+  REQUIRE(::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
+
+  auto mode_of = [&]() {
+    struct stat st = {};
+    REQUIRE(::stat(socket_path.c_str(), &st) == 0);
+    return st;
+  };
+
+  SECTION("Nothing requested leaves the socket as is") {
+    auto before = mode_of().st_mode & 0777;
+    REQUIRE(set_socket_permissions(socket_path, nullptr, nullptr));
+    REQUIRE((mode_of().st_mode & 0777) == before);
+  }
+
+  SECTION("Mode") {
+    REQUIRE(set_socket_permissions(socket_path, nullptr, "0660"));
+    REQUIRE((mode_of().st_mode & 0777) == 0660);
+    REQUIRE(set_socket_permissions(socket_path, nullptr, "777"));
+    REQUIRE((mode_of().st_mode & 0777) == 0777);
+  }
+
+  SECTION("Invalid modes are rejected and don't change anything") {
+    REQUIRE(set_socket_permissions(socket_path, nullptr, "0660"));
+    for (auto bad : {"", "0668", "0660x", "rw-rw----", "01777"}) {
+      REQUIRE_FALSE(set_socket_permissions(socket_path, nullptr, bad));
+      REQUIRE((mode_of().st_mode & 0777) == 0660);
+    }
+  }
+
+  SECTION("Group") {
+    auto gid = std::to_string(::getgid());
+    REQUIRE(set_socket_permissions(socket_path, gid.c_str(), nullptr));
+    REQUIRE(mode_of().st_gid == ::getgid());
+    REQUIRE_FALSE(set_socket_permissions(socket_path, "wolf-no-such-group", nullptr));
+  }
+
+  ::close(fd);
+  ::unlink(socket_path.c_str());
 }

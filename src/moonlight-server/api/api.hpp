@@ -12,6 +12,16 @@ using namespace wolf::core;
 
 void start_server(std::string_view runtime_dir, immer::box<state::AppState> app_state);
 
+/**
+ * Hands the API socket to a group and/or changes its permissions, so that a non-root client (e.g. a
+ * Wolf-UI container started rootless) can connect. Either argument can be nullptr to leave that part as is.
+ *
+ * @param group a group name or numeric GID
+ * @param mode octal permissions, e.g. "0660" (at most 0777)
+ * @return true if everything that was requested has been applied
+ */
+bool set_socket_permissions(const std::string &socket_path, const char *group, const char *mode);
+
 struct PendingPairClient {
   std::string pair_secret;
   rfl::Description<"The IP of the remote Moonlight client", std::string> client_ip;
