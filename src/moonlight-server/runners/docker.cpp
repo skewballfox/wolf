@@ -1,4 +1,8 @@
+#include <algorithm>
+#include <cctype>
+#include <fstream>
 #include <runners/docker.hpp>
+#include <sstream>
 
 namespace wolf::core::docker {
 
@@ -13,22 +17,94 @@ void create_udev_hw_files(std::filesystem::path base_hw_db_path,
   }
 }
 
-/**
- * @brief returns the major number associated with the requested device type (if found)
- * Internally will read /proc/devices line by line and return the first match
- */
-static std::optional<std::string> get_device_major(std::string_view type) {
-  std::ifstream devices_file("/proc/devices");
+std::optional<std::string> find_char_device_major(std::string_view proc_devices, std::string_view name) {
+  std::istringstream lines{std::string(proc_devices)};
   std::string line;
-  while (std::getline(devices_file, line)) {
-    if (line.find(type) != std::string::npos) {
-      // Example line: "244 hidraw" or " 13 input" (note the leading space)
-      line.erase(line.begin(),
-                 std::find_if(line.begin(), line.end(), [](unsigned char ch) { return ch >= '0' && ch <= '9'; }));
-      return line.substr(0, line.find(' '));
+  bool in_char_devices = false;
+  while (std::getline(lines, line)) {
+    // Example: "Character devices:" then lines like " 13 input" or "242 hidraw", then "Block devices:"
+    if (line == "Character devices:") {
+      in_char_devices = true;
+    } else if (line == "Block devices:") {
+      break;
+    } else if (in_char_devices) {
+      std::istringstream fields(line);
+      std::string major, device_name;
+      if (fields >> major >> device_name && device_name == name) {
+        return major;
+      }
     }
   }
   return std::nullopt;
+}
+
+/**
+ * @brief returns the major number of the character device called `name`, read from /proc/devices
+ */
+static std::optional<std::string> get_device_major(std::string_view name) {
+  std::ifstream devices_file("/proc/devices");
+  std::stringstream proc_devices;
+  proc_devices << devices_file.rdbuf();
+  return find_char_device_major(proc_devices.str(), name);
+}
+
+json::array resolve_device_cgroup_rules(const json::value *configured, const DeviceMajorLookup &get_major) {
+  std::vector<std::string> rules;
+  if (configured == nullptr || configured->is_null()) {
+    // The virtual DualSense needs a `/dev/hidraw*` node, plus the `/dev/input/*` nodes for every pad
+    rules = {"c hidraw:* rwm", "c input:* rwm"};
+  } else if (configured->is_array()) {
+    for (const auto &rule : configured->as_array()) {
+      if (rule.is_string()) {
+        rules.emplace_back(rule.as_string());
+      } else {
+        logs::log(logs::warning, "[DOCKER] Skipping DeviceCgroupRules entry {}: not a string", json::serialize(rule));
+      }
+    }
+  } else {
+    logs::log(logs::warning,
+              "[DOCKER] Ignoring DeviceCgroupRules: expected a list, got {}",
+              json::serialize(*configured));
+  }
+
+  json::array resolved;
+  for (const auto &rule : rules) {
+    // Rule format: "<type> <major>:<minor> <permissions>", for example "c 13:* rwm"
+    std::istringstream fields(rule);
+    std::string type, device, permissions;
+    auto separator = std::string::npos;
+    if (fields >> type >> device >> permissions) {
+      separator = device.find(':');
+    }
+    if (separator == std::string::npos) {
+      resolved.emplace_back(rule); // Not something we can interpret, leave it to the container engine to validate
+      continue;
+    }
+
+    auto major = device.substr(0, separator);
+    auto minor = device.substr(separator + 1);
+    // Older default configs hardcoded 244 for hidraw, but its major is assigned dynamically (244 is often another
+    // device, like usbmon)
+    if (type == "c" && major == "244" && minor == "*") {
+      major = "hidraw";
+    }
+
+    bool is_number = !major.empty() &&
+                     std::all_of(major.begin(), major.end(), [](unsigned char ch) { return std::isdigit(ch); });
+    if (major == "*" || is_number) {
+      resolved.emplace_back(fmt::format("{} {}:{} {}", type, major, minor, permissions));
+    } else if (type != "c") {
+      logs::log(logs::warning, "[DOCKER] Skipping DeviceCgroupRule '{}': names only work for character devices", rule);
+    } else if (auto number = get_major(major)) {
+      resolved.emplace_back(fmt::format("{} {}:{} {}", type, *number, minor, permissions));
+    } else {
+      logs::log(logs::warning,
+                "[DOCKER] Skipping DeviceCgroupRule '{}': no character device named '{}' in /proc/devices",
+                rule,
+                major);
+    }
+  }
+  return resolved;
 }
 
 void RunDocker::run(std::string_view session_id,
@@ -143,39 +219,23 @@ void RunDocker::run(std::string_view session_id,
     }
   }
 
-  // when creating a virtual DualSense device we need to also mount a `/dev/hidraw*` device.
-  // unfortunately hidraw devices use dynamically assigned major numbers rather than static ones
-  // so we'll get the major number from reading `/proc/devices` for `hidraw` and `input`
-  // and set the right entries in `DeviceCgroupRules`
+  // Hotplugged devices are mknod'ed inside the container, so `DeviceCgroupRules` must allow them. The rules come from
+  // `base_create_json`; device names in them (like `hidraw`, whose major is dynamically assigned) are resolved from
+  // `/proc/devices`. An empty list sets no rules, as rootless Podman requires.
   {
-    auto hidraw_major = get_device_major("hidraw");
-    auto input_major = get_device_major("input");
-    if (hidraw_major && input_major) {
-      logs::log(logs::debug,
-                "[DOCKER] Setting DeviceCgroupRules for hidraw:{} and input:{}",
-                *hidraw_major,
-                *input_major);
-      auto parsed_json = utils::parse_json(final_json_opts).as_object();
-      if (auto host_config_ptr = parsed_json.if_contains("HostConfig")) {
-        auto host_config = host_config_ptr->as_object();
-        host_config["DeviceCgroupRules"] = json::array{
-            fmt::format("c {}:* rwm", *hidraw_major),
-            fmt::format("c {}:* rwm", *input_major),
-        };
-        parsed_json["HostConfig"] = host_config;
-      } else {
-        parsed_json["HostConfig"] = json::object{
-            {"DeviceCgroupRules",
-             json::array{
-                 fmt::format("c {}:* rwm", *hidraw_major),
-                 fmt::format("c {}:* rwm", *input_major),
-             }},
-        };
-      }
-      final_json_opts = boost::json::serialize(parsed_json);
+    auto parsed_json = utils::parse_json(final_json_opts).as_object();
+    auto host_config = parsed_json.contains("HostConfig") ? parsed_json.at("HostConfig").as_object() : json::object{};
+    auto rules = resolve_device_cgroup_rules(host_config.if_contains("DeviceCgroupRules"), get_device_major);
+    logs::log(logs::debug, "[DOCKER] Setting DeviceCgroupRules: {}", json::serialize(rules));
+    if (rules.empty()) {
+      host_config.erase("DeviceCgroupRules");
     } else {
-      logs::log(logs::warning, "[DOCKER] Failed to get major numbers for hidraw and input");
+      host_config["DeviceCgroupRules"] = rules;
     }
+    if (!host_config.empty() || parsed_json.contains("HostConfig")) {
+      parsed_json["HostConfig"] = host_config;
+    }
+    final_json_opts = boost::json::serialize(parsed_json);
   }
 
   logs::log(logs::debug, "[DOCKER] Container options: {}", final_json_opts);

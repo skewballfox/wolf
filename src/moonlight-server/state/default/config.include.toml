@@ -24,7 +24,7 @@ base_create_json = '''{
         "IpcMode": "host",
         "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
         "Privileged": false,
-        "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+        "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
       }
     }'''
 devices = []
@@ -90,7 +90,7 @@ base_create_json = """
     "IpcMode": "host",
     "Privileged": false,
     "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
   }
 }
 \
@@ -118,7 +118,7 @@ base_create_json = """
     "IpcMode": "host",
     "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
     "Privileged": false,
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
   }
 }
 \
@@ -149,7 +149,7 @@ base_create_json = """
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
     "Ulimits": [{"Name":"nofile", "Hard":10240, "Soft":10240}],
     "Privileged": false,
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
   }
 }
 \
@@ -177,7 +177,7 @@ base_create_json = """
     "IpcMode": "host",
     "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
     "Privileged": false,
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
   }
 }
 \
@@ -207,7 +207,7 @@ base_create_json = """
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
     "Ulimits": [{"Name":"nofile", "Hard":524288, "Soft":524288}],
     "Privileged": false,
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
   }
 }
 \
@@ -235,7 +235,7 @@ base_create_json = """
     "IpcMode": "host",
     "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
     "Privileged": false,
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
   }
 }
 \
@@ -260,7 +260,7 @@ base_create_json = """
     "Privileged": false,
     "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
   }
 }
 \
@@ -284,7 +284,7 @@ base_create_json = """
     "IpcMode": "host",
     "Privileged": false,
     "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
   }
 }
 \
@@ -308,7 +308,7 @@ base_create_json = """
     "IpcMode": "host",
     "Privileged": false,
     "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
   }
 }
 \

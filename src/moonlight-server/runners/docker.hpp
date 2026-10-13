@@ -6,11 +6,15 @@
 #include <docker/formatters.hpp>
 #include <events/events.hpp>
 #include <fmt/core.h>
+#include <functional>
 #include <helpers/logger.hpp>
 #include <helpers/utils.hpp>
+#include <optional>
 #include <platforms/hw.hpp>
 #include <range/v3/view.hpp>
 #include <state/data-structures.hpp>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace wolf::core::docker {
@@ -19,6 +23,27 @@ using namespace std::chrono_literals;
 using namespace ranges::views;
 using namespace utils;
 using namespace wolf::core;
+
+using DeviceMajorLookup = std::function<std::optional<std::string>(std::string_view device_name)>;
+
+/**
+ * @brief returns the major number of the character device called `name` in the given `/proc/devices` content
+ */
+std::optional<std::string> find_char_device_major(std::string_view proc_devices, std::string_view name);
+
+/**
+ * @brief returns the `HostConfig.DeviceCgroupRules` to use when creating an app container
+ *
+ * - `configured` is null (not set in `base_create_json`): defaults to `hidraw` and `input`, needed by the virtual
+ *   DualSense.
+ * - `configured` is an array: those rules are used as given. An empty array means no rules, which rootless
+ *   Podman requires.
+ *
+ * In a rule, the major number can be a character device name (`c hidraw:* rwm`); it's resolved with `get_major`
+ * because some majors, like `hidraw`, are dynamically assigned. Rules naming a device that isn't present are
+ * skipped. `c 244:* rmw`, which older default configs used for `hidraw`, is treated as `c hidraw:* rmw`.
+ */
+json::array resolve_device_cgroup_rules(const json::value *configured, const DeviceMajorLookup &get_major);
 
 class RunDocker : public events::Runner {
 public:

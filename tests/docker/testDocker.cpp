@@ -621,3 +621,52 @@ TEST_CASE("Docker 29.1.5 fail to parse", "[DOCKER]") {
   REQUIRE(parsed_container.ports[0].public_port == 22);
   REQUIRE(parsed_container.ports[0].type == docker::TCP);
 }
+
+TEST_CASE("Docker DeviceCgroupRules from config", "[DOCKER]") {
+  auto proc_devices = std::string("Character devices:\n"
+                                  "  1 mem\n"
+                                  " 13 input\n"
+                                  "242 hidraw\n"
+                                  "244 usbmon\n"
+                                  "\n"
+                                  "Block devices:\n"
+                                  "  8 sd\n"
+                                  "259 blkext\n");
+  auto lookup = [&](std::string_view name) { return docker::find_char_device_major(proc_devices, name); };
+  auto resolve = [&](std::string_view host_config) {
+    auto parsed = utils::parse_json(host_config).as_object();
+    return docker::resolve_device_cgroup_rules(parsed.if_contains("DeviceCgroupRules"), lookup);
+  };
+
+  SECTION("Parse /proc/devices") {
+    REQUIRE(docker::find_char_device_major(proc_devices, "hidraw") == "242");
+    REQUIRE(docker::find_char_device_major(proc_devices, "input") == "13");
+    REQUIRE_FALSE(docker::find_char_device_major(proc_devices, "usb")); // no partial matches
+    REQUIRE_FALSE(docker::find_char_device_major(proc_devices, "sd"));  // block devices are ignored
+  }
+
+  SECTION("Not set: defaults to hidraw and input") {
+    REQUIRE(resolve(R"({})") == boost::json::array{"c 242:* rwm", "c 13:* rwm"});
+    REQUIRE(resolve(R"({"DeviceCgroupRules": null})") == boost::json::array{"c 242:* rwm", "c 13:* rwm"});
+  }
+
+  SECTION("Empty list: no rules (rootless Podman)") {
+    REQUIRE(resolve(R"({"DeviceCgroupRules": []})").empty());
+  }
+
+  SECTION("Names, numbers and wildcards") {
+    REQUIRE(resolve(R"({"DeviceCgroupRules": ["c hidraw:* rwm", "c 13:* rmw", "c 226:128 rw", "a *:* rwm"]})") ==
+            boost::json::array{"c 242:* rwm", "c 13:* rmw", "c 226:128 rw", "a *:* rwm"});
+  }
+
+  SECTION("Legacy hardcoded hidraw major is resolved, not passed through") {
+    REQUIRE(resolve(R"({"DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]})") ==
+            boost::json::array{"c 13:* rmw", "c 242:* rmw"});
+  }
+
+  SECTION("Unknown names and invalid entries") {
+    REQUIRE(resolve(R"({"DeviceCgroupRules": ["c nosuchdevice:* rwm", "b sd:* rwm", 42]})").empty());
+    REQUIRE(resolve(R"({"DeviceCgroupRules": ["garbage"]})") == boost::json::array{"garbage"});
+    REQUIRE(resolve(R"({"DeviceCgroupRules": "c 13:* rwm"})").empty());
+  }
+}

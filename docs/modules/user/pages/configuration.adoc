@@ -171,7 +171,7 @@ id = 'moonlight-profile-id'
             "IpcMode": "host",
             "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
             "Privileged": false,
-            "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+            "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
           }
         }'''
 
@@ -228,7 +228,7 @@ name = "User"
             "IpcMode": "host",
             "Privileged": false,
             "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN"],
-            "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+            "DeviceCgroupRules": ["c input:* rmw", "c hidraw:* rmw"]
           }
         }
         \
@@ -422,6 +422,16 @@ base_create_json = """
 <1> *mounts*: Here you can define any additional mount that you want to add to the container.
 For example, you can add `mounts = ["/media/data/games:/games:rw"]` if you want to share games files between host and app container.
 <2> *base_create_json*: here you can re-define any property that's defined in the docker API JSON format, see: https://docs.docker.com/engine/api/v1.40/#tag/Container/operation/ContainerCreate[docs.docker.com/engine/api/v1.40]
+
+===== Device cgroup rules
+
+Wolf `mknod`s hotplugged controllers inside the app container, so `HostConfig.DeviceCgroupRules` has to allow them:
+
+* *Not set*: Wolf allows `hidraw` and `input` devices, which is what the virtual controllers (including the DualSense) need.
+* *Set*: Wolf uses your rules. Instead of a major number you can write a character device name, for example `"c hidraw:* rmw"`.
+Wolf looks it up in `/proc/devices` when the container is created. Use names for devices like `hidraw`, whose major number is assigned at boot and differs between hosts.
+`"c 244:* rmw"`, which older default configs used for `hidraw`, is read as `"c hidraw:* rmw"`.
+* *Set to an empty list* (`"DeviceCgroupRules": []`): no rules. Rootless Podman refuses to create a container with any device cgroup rule, so use this there.
 
 [#_gstreamer]
 === Gstreamer
